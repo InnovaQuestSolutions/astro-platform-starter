@@ -25,8 +25,8 @@ const { title } = Astro.props;
             --chat--color-secondary: #6b3fd4;
             --chat--color-background: #16131c;
             --chat--color-font: #ffffff;
-            --chat--color-user-bg: linear-gradient(135deg, var(--chat--color-primary) 0%, var(--chat--color-secondary) 100%);
-            --chat--color-bot-bg: rgba(28, 28, 35, 0.8);
+            --chat--color-user-bg: #854fff; /* Solid purple like in the image */
+            --chat--color-bot-bg: #222;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
         }
         
@@ -182,9 +182,9 @@ const { title } = Astro.props;
             word-wrap: break-word;
             font-size: 14px;
             line-height: 1.5;
-            width: fit-content;
             position: relative;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            width: 100%;
         }
         
         .chat-message.user {
@@ -197,14 +197,12 @@ const { title } = Astro.props;
             background: var(--chat--color-bot-bg);
             color: var(--chat--color-font);
             border-top-left-radius: 4px;
-            border: 1px solid rgba(133, 79, 255, 0.1);
         }
         
         .timestamp {
             font-size: 11px;
             margin-top: 4px;
             opacity: 0.7;
-            align-self: flex-end;
         }
         
         .message-wrapper.user .timestamp {
@@ -213,7 +211,6 @@ const { title } = Astro.props;
         
         .message-wrapper.bot .timestamp {
             text-align: left;
-            align-self: flex-start;
         }
         
         .chat-input {
@@ -292,7 +289,6 @@ const { title } = Astro.props;
             max-width: 80%;
             align-self: flex-start;
             background: var(--chat--color-bot-bg);
-            border: 1px solid rgba(133, 79, 255, 0.1);
             border-top-left-radius: 4px;
         }
         
@@ -329,6 +325,33 @@ const { title } = Astro.props;
         @keyframes l1 {
             100% {transform: rotate(1turn)}
         }
+
+        /* Markdown styles inside chat messages */
+        .chat-message a {
+            color: #a58aff;
+            text-decoration: underline;
+        }
+
+        .chat-message pre {
+            background: rgba(0,0,0,0.2);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            margin: 5px 0;
+        }
+
+        .chat-message code {
+            background: rgba(0,0,0,0.2);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        .chat-message ul, .chat-message ol {
+            margin-left: 20px;
+        }
     </style>
 </head>
 <body>
@@ -362,6 +385,55 @@ const { title } = Astro.props;
     <script>
         // Initialize when DOM is ready
         document.addEventListener('DOMContentLoaded', function() {
+            // Function to parse Markdown
+            function parseMarkdown(text) {
+                // Bold
+                text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                text = text.replace(/__(.*?)__/g, '<strong>$1</strong>');
+                
+                // Italic
+                text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+                text = text.replace(/_(.*?)_/g, '<em>$1</em>');
+                
+                // Links
+                text = text.replace(/\[([^\[]+)\]\(([^\)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+                
+                // Headers
+                text = text.replace(/### (.*)/g, '<h3 style="font-size: 1.1em; margin: 10px 0;">$1</h3>');
+                text = text.replace(/## (.*)/g, '<h2 style="font-size: 1.2em; margin: 10px 0;">$1</h2>');
+                text = text.replace(/# (.*)/g, '<h1 style="font-size: 1.3em; margin: 10px 0;">$1</h1>');
+                
+                // Unordered lists
+                text = text.replace(/(?:^|\n)[ ]*[-*+][ ]+(.*)/g, '<li>$1</li>');
+                
+                // Ordered lists
+                text = text.replace(/(?:^|\n)[ ]*\d+\.[ ]+(.*)/g, '<li>$1</li>');
+                
+                // Wrap lists
+                if (text.includes('<li>')) {
+                    text = '<ul>' + text + '</ul>';
+                    // Fix potential duplicate ul tags
+                    text = text.replace(/<\/ul>\s*<ul>/g, '');
+                }
+                
+                // Code blocks
+                text = text.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
+                
+                // Inline code
+                text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+                
+                // Paragraphs and line breaks
+                text = text.replace(/\n\n/g, '</p><p>');
+                text = text.replace(/\n/g, '<br>');
+                
+                // Wrap in paragraph if needed
+                if (!text.includes('<p>')) {
+                    text = '<p>' + text + '</p>';
+                }
+                
+                return text;
+            }
+            
             // Configuration
             const webhookUrl = "https://n8n.innovaquest.solutions/webhook/bd6697b2-4dc2-4943-a4d4-f3bc38d15092";
             
@@ -376,6 +448,7 @@ const { title } = Astro.props;
             // Session ID management
             let sessionId = getSessionId();
             let chatMessages = [];
+            let initialMessageSent = false;
             
             // Function to get or create a session ID
             function getSessionId() {
@@ -416,7 +489,13 @@ const { title } = Astro.props;
                 // Create message element
                 const messageEl = document.createElement('div');
                 messageEl.className = `chat-message ${sender}`;
-                messageEl.textContent = message;
+                
+                // Parse markdown for bot messages
+                if (sender === 'bot') {
+                    messageEl.innerHTML = parseMarkdown(message);
+                } else {
+                    messageEl.textContent = message;
+                }
                 
                 // Create timestamp element
                 const timestampEl = document.createElement('div');
@@ -454,6 +533,29 @@ const { title } = Astro.props;
             // Save chat history to localStorage
             function saveChatHistory() {
                 localStorage.setItem('chat_history_' + sessionId, JSON.stringify(chatMessages));
+            }
+            
+            // Function to send empty message on open
+            async function sendEmptyMessage() {
+                if (initialMessageSent) return;
+                
+                try {
+                    // Send empty message with sessionId
+                    await fetch(webhookUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            sessionId: sessionId,
+                            chatInput: ''
+                        })
+                    });
+                    
+                    initialMessageSent = true;
+                } catch (error) {
+                    console.error('Error sending initial empty message:', error);
+                }
             }
             
             // Function to send message
@@ -563,9 +665,15 @@ const { title } = Astro.props;
             toggleButton.addEventListener('click', function() {
                 chatContainer.classList.toggle('open');
                 
-                // Load chat history when opening
-                if (chatContainer.classList.contains('open') && messagesContainer.children.length === 0) {
-                    loadChatHistory();
+                // If opening the chat
+                if (chatContainer.classList.contains('open')) {
+                    // Load chat history
+                    if (messagesContainer.children.length === 0) {
+                        loadChatHistory();
+                    }
+                    
+                    // Send empty message when opening
+                    sendEmptyMessage();
                 }
             });
             
