@@ -16,7 +16,7 @@ const { title } = Astro.props;
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <title>Chat Widget</title>
     
     <style>
@@ -237,7 +237,7 @@ const { title } = Astro.props;
             color: var(--chat--color-font);
             resize: none;
             font-family: inherit;
-            font-size: 14px;
+            font-size: 16px; /* Minimum 16px to prevent zoom on iOS */
             min-height: 20px;
             max-height: 120px;
             height: auto;
