@@ -21,7 +21,7 @@ const { title } = Astro.props;
     
     <script>
        
-       (function() {
+      (function() {
     // Default configuration
     const defaultConfig = {
         webhook: {
@@ -59,6 +59,10 @@ const { title } = Astro.props;
     if (window.MyAngelsChatWidgetInitialized) return;
     window.MyAngelsChatWidgetInitialized = true;
 
+    // Ensure markdown libraries are loaded before initializing the chat
+    let markedLoaded = false;
+    let highlightLoaded = false;
+
     // Load required external dependencies
     loadDependencies();
 
@@ -68,8 +72,10 @@ const { title } = Astro.props;
     // Create the chat widget elements
     createChatWidget();
 
-    // Initialize widget functionality
-    initWidgetFunctionality();
+    // Initialize widget functionality with delay to ensure dependencies are loaded
+    waitForDependencies(() => {
+        initWidgetFunctionality();
+    });
 
     /**
      * Load external dependencies (Marked.js and Highlight.js)
@@ -78,6 +84,10 @@ const { title } = Astro.props;
         // Load Marked.js for Markdown parsing
         const markedScript = document.createElement('script');
         markedScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js';
+        markedScript.onload = function() {
+            console.log('Marked.js loaded successfully');
+            markedLoaded = true;
+        };
         document.head.appendChild(markedScript);
 
         // Load Highlight.js for code syntax highlighting
@@ -88,6 +98,10 @@ const { title } = Astro.props;
 
         const highlightJsScript = document.createElement('script');
         highlightJsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js';
+        highlightJsScript.onload = function() {
+            console.log('Highlight.js loaded successfully');
+            highlightLoaded = true;
+        };
         document.head.appendChild(highlightJsScript);
 
         // Load Geist font
@@ -95,6 +109,26 @@ const { title } = Astro.props;
         fontLink.rel = 'stylesheet';
         fontLink.href = 'https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css';
         document.head.appendChild(fontLink);
+    }
+
+    /**
+     * Wait for dependencies to be loaded
+     */
+    function waitForDependencies(callback, attempts = 0) {
+        if (window.marked && window.hljs) {
+            console.log('All dependencies loaded, initializing chat widget');
+            callback();
+            return;
+        }
+        
+        if (attempts > 20) { // 10 seconds timeout
+            console.warn('Timed out waiting for dependencies, initializing anyway');
+            callback();
+            return;
+        }
+        
+        console.log('Waiting for dependencies to load...');
+        setTimeout(() => waitForDependencies(callback, attempts + 1), 500);
     }
 
     /**
@@ -1002,7 +1036,10 @@ const { title } = Astro.props;
 
         // Render markdown
         function renderMarkdown(text) {
+            if (!text) return '';
+            
             if (typeof marked === 'undefined') {
+                console.warn('Marked.js not loaded yet, returning plain text');
                 return text;
             }
 
@@ -1011,7 +1048,11 @@ const { title } = Astro.props;
                 renderer: new marked.Renderer(),
                 highlight: function(code, lang) {
                     if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
-                        return hljs.highlight(code, { language: lang }).value;
+                        try {
+                            return hljs.highlight(code, { language: lang }).value;
+                        } catch (e) {
+                            console.error('Error highlighting code:', e);
+                        }
                     }
                     return code;
                 },
@@ -1047,6 +1088,20 @@ const { title } = Astro.props;
             }, delay);
         }
 
+        // Apply syntax highlighting to code blocks
+        function applySyntaxHighlighting() {
+            if (typeof hljs !== 'undefined') {
+                messagesContainer.querySelectorAll('pre code').forEach((block) => {
+                    hljs.highlightElement(block);
+                });
+            } else {
+                console.warn('Highlight.js not loaded yet, skipping syntax highlighting');
+                
+                // Try again in a second
+                setTimeout(applySyntaxHighlighting, 1000);
+            }
+        }
+
         // Open chat
         function openChat() {
             chatContainer.classList.add('open');
@@ -1070,6 +1125,9 @@ const { title } = Astro.props;
                 
                 // Make sure to scroll to bottom
                 scrollToBottom();
+                
+                // Ensure syntax highlighting is applied
+                applySyntaxHighlighting();
             } else {
                 // No conversations, show welcome
                 welcomeView.style.display = 'flex';
@@ -1192,15 +1250,12 @@ const { title } = Astro.props;
             chatMessages.push({
                 timestamp: formatTime(now),
                 sender: sender === 'user' ? 'Visitor' : config.branding.name,
-                message: message
+                message: message, // Save the original message text (with markdown)
+                html: sender === 'bot' ? renderMarkdown(message) : null // Save the rendered HTML for bot messages
             });
             
             // Apply syntax highlighting if available
-            if (typeof hljs !== 'undefined') {
-                messageEl.querySelectorAll('pre code').forEach((block) => {
-                    hljs.highlightElement(block);
-                });
-            }
+            applySyntaxHighlighting();
         }
 
         // Create loading indicator
@@ -1289,10 +1344,20 @@ const { title } = Astro.props;
                 // Find existing conversation or create new one
                 let conversationIndex = conversations.findIndex(c => c.sessionId === currentSessionId);
                 
-                // Create preview from last message
+                // Create preview text (clean from HTML)
                 const lastMessage = chatMessages[chatMessages.length - 1];
-                const preview = lastMessage.message.substring(0, 60) + 
-                    (lastMessage.message.length > 60 ? '...' : '');
+                let plainText = lastMessage.message;
+                
+                // Strip HTML if there's rendered HTML
+                if (lastMessage.sender !== 'Visitor') {
+                    // Create a temporary div to strip HTML
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = plainText;
+                    plainText = tempDiv.textContent || tempDiv.innerText || plainText;
+                }
+                
+                const preview = plainText.substring(0, 60) + 
+                    (plainText.length > 60 ? '...' : '');
                 
                 if (conversationIndex >= 0) {
                     // Update existing conversation
@@ -1359,7 +1424,17 @@ const { title } = Astro.props;
                         // Bot message with markdown
                         const markdownEl = document.createElement('div');
                         markdownEl.className = 'chat-markdown';
-                        markdownEl.innerHTML = renderMarkdown(msg.message);
+                        
+                        // If we have pre-rendered HTML, use it, otherwise render markdown
+                        if (msg.html) {
+                            markdownEl.innerHTML = msg.html;
+                        } else {
+                            markdownEl.innerHTML = renderMarkdown(msg.message);
+                            
+                            // Update the saved HTML in the message object
+                            msg.html = markdownEl.innerHTML;
+                        }
+                        
                         bubbleEl.appendChild(markdownEl);
                     } else {
                         // User message as plain text
@@ -1382,12 +1457,11 @@ const { title } = Astro.props;
                 // Scroll to bottom with a longer delay to ensure all content is rendered
                 scrollToBottom(300);
                 
-                // Apply syntax highlighting if available
-                if (typeof hljs !== 'undefined') {
-                    messagesContainer.querySelectorAll('pre code').forEach((block) => {
-                        hljs.highlightElement(block);
-                    });
-                }
+                // Apply syntax highlighting
+                applySyntaxHighlighting();
+                
+                // Save conversation to ensure HTML is stored
+                saveChatState();
             }
         }
 
@@ -1463,7 +1537,16 @@ const { title } = Astro.props;
             transcript += `${'-'.repeat(40)}\n\n`;
             
             chatMessages.forEach(msg => {
-                transcript += `[${msg.timestamp}] ${msg.sender}: ${msg.message}\n\n`;
+                // Get plain text from messages
+                let msgText = msg.message;
+                if (msg.sender !== 'Visitor' && msg.message.includes('<')) {
+                    // Create a temporary div to strip HTML
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = msgText;
+                    msgText = tempDiv.textContent || tempDiv.innerText || msgText;
+                }
+                
+                transcript += `[${msg.timestamp}] ${msg.sender}: ${msgText}\n\n`;
             });
             
             transcript += `\n${'-'.repeat(40)}\n`;
