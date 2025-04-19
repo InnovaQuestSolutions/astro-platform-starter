@@ -20,22 +20,8 @@ const { title } = Astro.props;
     <title>Chat Widget</title>
     
     <script>
-       /**
- * MyAngels Chat Widget
- * A self-contained chat widget that can be embedded on any website
- */
-
-/**
- * MyAngels Chat Widget
- * A self-contained chat widget that can be embedded on any website
- */
-
- /**
- * MyAngels Chat Widget
- * A self-contained chat widget that can be embedded on any website
- */
-
-(function() {
+       
+       (function() {
     // Default configuration
     const defaultConfig = {
         webhook: {
@@ -317,6 +303,7 @@ const { title } = Astro.props;
                 justify-content: center;
                 padding: 30px;
                 text-align: center;
+                display: none; /* Hide by default, show only when needed */
             }
 
             .myangels-chat .chat-welcome-title {
@@ -913,6 +900,9 @@ const { title } = Astro.props;
         let currentSessionId = '';
         let chatMessages = [];
         let activeConversationIndex = -1;
+        
+        // Track first visit
+        const isFirstVisit = localStorage.getItem('myangels_has_visited') !== 'true';
 
         // DOM elements
         const chatWidget = document.querySelector('.myangels-chat');
@@ -924,6 +914,7 @@ const { title } = Astro.props;
         const newConversationButton = document.querySelector('.myangels-chat .chat-new-conversation');
         const viewConversationsButton = document.querySelector('.myangels-chat .chat-view-conversations');
         const downloadTranscriptButton = document.querySelector('.myangels-chat .chat-download-transcript');
+        const welcomeView = document.querySelector('.myangels-chat .chat-welcome');
         const welcomeStartButton = document.querySelector('.myangels-chat .chat-welcome-button');
         const messagesView = document.querySelector('.myangels-chat .chat-messages-view');
         const conversationsView = document.querySelector('.myangels-chat .chat-conversations-view');
@@ -932,12 +923,41 @@ const { title } = Astro.props;
         const sendButton = document.querySelector('.myangels-chat .chat-input-button');
         const conversationsList = document.querySelector('.myangels-chat .chat-conversations-list');
 
+        // Get active session ID from localStorage
+        function getActiveSessionId() {
+            return localStorage.getItem('myangels_active_session');
+        }
+
+        // Set active session ID in localStorage
+        function setActiveSessionId(sessionId) {
+            if (sessionId) {
+                localStorage.setItem('myangels_active_session', sessionId);
+            } else {
+                localStorage.removeItem('myangels_active_session');
+            }
+        }
+
+        // Check if chat was open before
+        function getChatOpenState() {
+            return localStorage.getItem('myangels_chat_open') === 'true';
+        }
+
+        // Set chat open state 
+        function setChatOpenState(isOpen) {
+            localStorage.setItem('myangels_chat_open', isOpen ? 'true' : 'false');
+        }
+
+        // Check if this is the first visit
+        function markFirstVisit() {
+            localStorage.setItem('myangels_has_visited', 'true');
+        }
+
         // Load conversations from storage
         function loadConversations() {
             const savedConversations = localStorage.getItem('myangels_conversations');
             if (savedConversations) {
                 conversations = JSON.parse(savedConversations);
-                return true;
+                return conversations.length > 0;
             }
             return false;
         }
@@ -1019,14 +1039,40 @@ const { title } = Astro.props;
             menuDropdown.classList.toggle('show');
         }
 
+        // Scroll to bottom of messages
+        function scrollToBottom(delay = 100) {
+            // Use a timeout to ensure all content is rendered
+            setTimeout(() => {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }, delay);
+        }
+
         // Open chat
         function openChat() {
             chatContainer.classList.add('open');
             chatWidget.classList.add('chat-open'); // Add class to hide toggle button
+            setChatOpenState(true);
             
-            // Show welcome screen if no conversation
-            if (!currentSessionId || chatMessages.length === 0) {
-                document.querySelector('.myangels-chat .chat-welcome').style.display = 'flex';
+            // If first visit, show welcome screen
+            if (isFirstVisit && conversations.length === 0) {
+                welcomeView.style.display = 'flex';
+                messagesView.classList.remove('active');
+                conversationsView.classList.remove('active');
+                markFirstVisit();
+                return;
+            }
+            
+            // If we have conversations, don't show welcome
+            if (conversations.length > 0) {
+                welcomeView.style.display = 'none';
+                conversationsView.classList.remove('active');
+                messagesView.classList.add('active');
+                
+                // Make sure to scroll to bottom
+                scrollToBottom();
+            } else {
+                // No conversations, show welcome
+                welcomeView.style.display = 'flex';
                 messagesView.classList.remove('active');
                 conversationsView.classList.remove('active');
             }
@@ -1037,6 +1083,7 @@ const { title } = Astro.props;
             chatContainer.classList.remove('open');
             chatWidget.classList.remove('chat-open'); // Remove class to show toggle button
             menuDropdown.classList.remove('show');
+            setChatOpenState(false);
         }
 
         // Start new conversation
@@ -1046,8 +1093,11 @@ const { title } = Astro.props;
             chatMessages = [];
             activeConversationIndex = -1;
             
+            // Update active session
+            setActiveSessionId(currentSessionId);
+            
             // Show messages view
-            document.querySelector('.myangels-chat .chat-welcome').style.display = 'none';
+            welcomeView.style.display = 'none';
             conversationsView.classList.remove('active');
             messagesView.classList.add('active');
             messagesContainer.innerHTML = '';
@@ -1136,7 +1186,7 @@ const { title } = Astro.props;
             messagesContainer.appendChild(messageEl);
             
             // Scroll to bottom
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            scrollToBottom();
             
             // Save message to transcript
             chatMessages.push({
@@ -1186,7 +1236,7 @@ const { title } = Astro.props;
             // Create loading indicator
             const loadingIndicator = createLoadingIndicator();
             messagesContainer.appendChild(loadingIndicator);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            scrollToBottom();
             
             try {
                 // Send message to server
@@ -1261,10 +1311,16 @@ const { title } = Astro.props;
                         preview: preview,
                         lastUpdated: new Date().toISOString()
                     });
+                    
+                    // Set the active index to 0 (the new conversation)
+                    activeConversationIndex = 0;
                 }
                 
                 // Save to storage
                 saveConversations();
+                
+                // Update active session
+                setActiveSessionId(currentSessionId);
             }
         }
 
@@ -1278,8 +1334,11 @@ const { title } = Astro.props;
                 currentSessionId = conversation.sessionId;
                 chatMessages = [...conversation.messages];
                 
+                // Update active session
+                setActiveSessionId(currentSessionId);
+                
                 // Switch to messages view
-                document.querySelector('.myangels-chat .chat-welcome').style.display = 'none';
+                welcomeView.style.display = 'none';
                 conversationsView.classList.remove('active');
                 messagesView.classList.add('active');
                 
@@ -1320,8 +1379,8 @@ const { title } = Astro.props;
                     messagesContainer.appendChild(messageEl);
                 });
                 
-                // Scroll to bottom
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                // Scroll to bottom with a longer delay to ensure all content is rendered
+                scrollToBottom(300);
                 
                 // Apply syntax highlighting if available
                 if (typeof hljs !== 'undefined') {
@@ -1383,7 +1442,7 @@ const { title } = Astro.props;
 
         // Show conversations view
         function showConversationsView() {
-            document.querySelector('.myangels-chat .chat-welcome').style.display = 'none';
+            welcomeView.style.display = 'none';
             messagesView.classList.remove('active');
             conversationsView.classList.add('active');
             
@@ -1422,10 +1481,46 @@ const { title } = Astro.props;
             URL.revokeObjectURL(url);
         }
 
+        // Check if we should automatically restore previous session
+        function checkAndRestorePreviousSession() {
+            // Load conversations
+            const hasConversations = loadConversations();
+            
+            if (hasConversations) {
+                // Check if chat was previously open
+                const wasOpen = getChatOpenState();
+                
+                // Get active session ID
+                const activeSessionId = getActiveSessionId();
+                
+                if (activeSessionId) {
+                    // Find the active conversation
+                    const sessionIndex = conversations.findIndex(c => c.sessionId === activeSessionId);
+                    
+                    if (sessionIndex >= 0) {
+                        // Load this conversation
+                        loadConversation(sessionIndex);
+                        return wasOpen;
+                    }
+                }
+                
+                // If no active session or it wasn't found, load most recent conversation
+                loadConversation(0);
+                return wasOpen;
+            }
+            
+            return false;
+        }
+
         // Initialize the chat
         function initialize() {
-            // Load saved conversations
-            loadConversations();
+            // Check if we should restore previous session and if chat was open
+            const shouldOpen = checkAndRestorePreviousSession();
+            
+            // If we have a previous session and chat was open before, automatically open the chat
+            if (shouldOpen) {
+                openChat();
+            }
             
             // Add event listeners
             toggleButton.addEventListener('click', openChat);
